@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Renovation Tracker</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans select-none">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        
+        // --- ICONS ---
+        // We create simple icon components that map to Lucide's global object
+        const Icon = ({ name, size = 24, className = "" }) => {
+            useEffect(() => {
+                if (window.lucide) window.lucide.createIcons();
+            }, [name]);
+            return <i data-lucide={name} width={size} height={size} className={className}></i>;
+        };
+
+        // --- FIREBASE CONFIGURATION ---
+        // IMPORTANT: You must swap this with your own Firebase config if hosting externally.
+        // For now, this uses the preview environment's method if available, or placeholders.
+        // If you host this yourself, go to Firebase Console > Project Settings > General > Your Apps > SDK Setup and paste the config object here.
+        
+        // NOTE: Since we can't access the hidden environment variables outside the preview, 
+        // you will need to create a free Firebase project (firebase.google.com) and paste the config here to make it work persistently on your own hosting.
+        const firebaseConfig = {
+            // apiKey: "YOUR_API_KEY",
+            // authDomain: "YOUR_PROJECT.firebaseapp.com",
+            // projectId: "YOUR_PROJECT_ID",
+            // storageBucket: "YOUR_PROJECT.appspot.com",
+            // messagingSenderId: "...",
+            // appId: "..."
+        };
+
+        // --- MOCK DATABASE (Use this if you don't want to set up Firebase yet) ---
+        // Since I cannot export the secure Firebase connection to a standalone HTML file easily,
+        // I have set this up to use LocalStorage (Browser Memory) by default. 
+        // It works perfectly on one phone, but won't sync between devices without the Firebase Config above.
+        
+        const useLocalStorage = true; 
+
+        // --- DATA ---
+        const INITIAL_DATA = [
+            { id: '1', date: '2025-10-02', startTime: '08:00', endTime: '13:45', type: 'work', notes: 'Standard work', status: 'completed' },
+            { id: '2', date: '2025-10-07', startTime: '', endTime: '', type: 'missed', notes: 'Car repair / issues', status: 'missed' },
+            { id: '3', date: '2025-10-16', startTime: '09:03', endTime: '09:38', type: 'work', notes: 'Sick day (partial)', status: 'completed' },
+            { id: '4', date: '2025-10-21', startTime: '', endTime: '', type: 'missed', notes: 'Not available', status: 'missed' },
+            { id: '5', date: '2025-10-23', startTime: '08:42', endTime: '13:47', type: 'work', notes: 'Dentist appt', status: 'completed' },
+            { id: '6', date: '2025-10-28', startTime: '08:21', endTime: '14:07', type: 'work', notes: 'Standard work', status: 'completed' },
+            { id: '7', date: '2025-10-30', startTime: '08:30', endTime: '13:52', type: 'work', notes: 'Standard work', status: 'completed' },
+            { id: '8', date: '2025-11-04', startTime: '', endTime: '', type: 'missed', notes: 'Personal day', status: 'missed' },
+            { id: '9', date: '2025-11-06', startTime: '08:45', endTime: '13:45', type: 'work', notes: 'Standard work', status: 'completed' },
+            { id: '10', date: '2025-11-11', startTime: '07:45', endTime: '14:30', type: 'work', notes: 'Standard work', status: 'completed' },
+            { id: '11', date: '2025-11-13', startTime: '08:45', endTime: '13:30', type: 'work', notes: 'Mudding/drywall, organizing shop', status: 'completed' },
+            { id: '12', date: '2025-11-18', startTime: '', endTime: '', type: 'missed', notes: 'Missed', status: 'missed' },
+        ];
+
+        // --- HELPER FUNCTIONS ---
+        const calculateDuration = (start, end) => {
+            if (!start || !end) return 0;
+            const [startH, startM] = start.split(':').map(Number);
+            const [endH, endM] = end.split(':').map(Number);
+            const startDate = new Date(0, 0, 0, startH, startM);
+            const endDate = new Date(0, 0, 0, endH, endM);
+            let diff = (endDate - startDate) / 1000 / 60 / 60; 
+            if (diff < 0) diff += 24; 
+            return diff;
+        };
+
+        const formatCurrency = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+        const formatHours = (val) => `${val.toFixed(2)} hrs`;
+        const formatDate = (dateStr) => {
+            if (!dateStr) return '';
+            const [y, m, d] = dateStr.split('-');
+            return `${m}/${d}`;
+        };
+
+        // --- MAIN APP COMPONENT ---
+        function App() {
+            const [entries, setEntries] = useState([]);
+            const [loading, setLoading] = useState(true);
+            
+            // Modal State
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [editingEntry, setEditingEntry] = useState(null);
+            const [formData, setFormData] = useState({
+                date: new Date().toISOString().split('T')[0],
+                startTime: '',
+                endTime: '',
+                notes: '',
+                type: 'work'
+            });
+
+            // Load Data (LocalStorage Version)
+            useEffect(() => {
+                const loadData = () => {
+                    const saved = localStorage.getItem('renovation_entries');
+                    if (saved) {
+                        setEntries(JSON.parse(saved));
+                    } else {
+                        setEntries(INITIAL_DATA);
+                        localStorage.setItem('renovation_entries', JSON.stringify(INITIAL_DATA));
+                    }
+                    setLoading(false);
+                };
+                loadData();
+            }, []);
+
+            // Save Data
+            const saveEntries = (newEntries) => {
+                setEntries(newEntries);
+                localStorage.setItem('renovation_entries', JSON.stringify(newEntries));
+            };
+
+            // Stats Calculation
+            const stats = useMemo(() => {
+                const totalDebt = 2000;
+                const totalHoursTarget = 13 * 8; // 104 hours
+                const hourlyRate = totalDebt / totalHoursTarget; // $19.23
+                
+                let hoursWorked = 0;
+                entries.forEach(e => {
+                    if (e.type === 'work' && e.startTime && e.endTime) {
+                        hoursWorked += calculateDuration(e.startTime, e.endTime);
+                    }
+                });
+
+                const valueEarned = hoursWorked * hourlyRate;
+                const remainingBalance = totalDebt - valueEarned;
+                const remainingHours = Math.max(0, totalHoursTarget - hoursWorked);
+                const percentComplete = Math.min(100, (valueEarned / totalDebt) * 100);
+
+                return { hourlyRate, hoursWorked, valueEarned, remainingBalance, remainingHours, percentComplete, totalHoursTarget };
+            }, [entries]);
+
+            // Handlers
+            const handleSave = () => {
+                if (formData.type === 'work' && (!formData.startTime || !formData.endTime)) {
+                    alert("Please enter times for work entries.");
+                    return;
+                }
+
+                let newEntries = [...entries];
+                const newEntry = { ...formData, id: editingEntry ? editingEntry.id : Date.now().toString(), status: formData.type === 'missed' ? 'missed' : 'completed' };
+
+                if (editingEntry) {
+                    newEntries = newEntries.map(e => e.id === editingEntry.id ? newEntry : e);
+                } else {
+                    newEntries.push(newEntry);
+                }
+                
+                // Sort
+                newEntries.sort((a, b) => new Date(b.date) - new Date(a.date));
+                
+                saveEntries(newEntries);
+                closeModal();
+            };
+
+            const handleDelete = (id) => {
+                if (confirm("Delete this entry?")) {
+                    saveEntries(entries.filter(e => e.id !== id));
+                }
+            };
+
+            const openModal = (entry = null) => {
+                setEditingEntry(entry);
+                setFormData(entry ? { ...entry } : { 
+                    date: new Date().toISOString().split('T')[0], 
+                    startTime: '', 
+                    endTime: '', 
+                    notes: '', 
+                    type: 'work' 
+                });
+                setIsModalOpen(true);
+            };
+
+            const closeModal = () => { setIsModalOpen(false); setEditingEntry(null); };
+
+            // Render
+            return (
+                <div className="pb-24">
+                    {/* Header */}
+                    <div className="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-10 pt-4 pb-4 px-4">
+                        <div className="max-w-md mx-auto">
+                            <div className="flex justify-between items-center mb-4">
+                                <h1 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                Renovation Debt
+                                </h1>
+                                <div className="text-right">
+                                    <div className="text-xl font-bold text-blue-600">{formatCurrency(stats.remainingBalance)}</div>
+                                    <p className="text-[10px] text-slate-400 uppercase tracking-wider">Remaining</p>
+                                </div>
+                            </div>
+
+                            <div className="relative h-3 bg-slate-100 rounded-full overflow-hidden mb-2">
+                                <div className="absolute top-0 left-0 h-full bg-blue-500 transition-all duration-500" style={{ width: `${stats.percentComplete}%` }}></div>
+                            </div>
+                            <div className="flex justify-between text-[10px] text-slate-500 font-medium uppercase tracking-wide">
+                                <span>{formatHours(stats.hoursWorked)} worked</span>
+                                <span>{formatHours(stats.remainingHours)} left</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Main List */}
+                    <div className="max-w-md mx-auto px-4 py-4 space-y-3">
+                        {entries.map(entry => {
+                            const duration = calculateDuration(entry.startTime, entry.endTime);
+                            const value = duration * stats.hourlyRate;
+                            const isMissed = entry.type === 'missed';
+
+                            return (
+                                <div key={entry.id} onClick={() => openModal(entry)} className={`bg-white rounded-xl p-4 shadow-sm border-l-4 flex justify-between items-start active:scale-[0.98] transition-transform ${isMissed ? 'border-red-400 opacity-75' : 'border-blue-500'}`}>
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="font-bold text-slate-700">{formatDate(entry.date)}</span>
+                                            {isMissed ? (
+                                                <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold uppercase">Missed</span>
+                                            ) : (
+                                                <span className="text-xs text-slate-400">{entry.startTime} - {entry.endTime}</span>
+                                            )}
+                                        </div>
+                                        <p className="text-sm text-slate-600 leading-snug line-clamp-1">{entry.notes || (isMissed ? "No reason logged" : "Work completed")}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        {isMissed ? (
+                                            <span className="text-slate-300 font-bold">—</span>
+                                        ) : (
+                                            <div className="flex flex-col items-end">
+                                                <span className="font-bold text-slate-800">{formatCurrency(value)}</span>
+                                                <span className="text-[10px] text-slate-400">{formatHours(duration)}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* FAB */}
+                    <button 
+                        onClick={() => openModal()}
+                        className="fixed bottom-6 right-6 bg-blue-600 text-white w-14 h-14 rounded-full shadow-lg shadow-blue-600/30 flex items-center justify-center active:scale-90 transition-all z-20"
+                    >
+                        <Icon name="plus" />
+                    </button>
+
+                    {/* Entry Modal */}
+                    {isModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm">
+                            <div className="bg-white w-full max-w-md sm:rounded-2xl rounded-t-2xl p-6 shadow-2xl animate-in slide-in-from-bottom-10 duration-300">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold text-slate-800">{editingEntry ? 'Edit Entry' : 'Log Work'}</h3>
+                                    <button onClick={closeModal} className="p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200">
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+
+                                <div className="space-y-5">
+                                    <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+                                        {['work', 'missed'].map(t => (
+                                            <button 
+                                                key={t}
+                                                onClick={() => setFormData({...formData, type: t})}
+                                                className={`py-3 text-sm font-bold rounded-lg transition-all ${formData.type === t ? 'bg-white shadow text-blue-600' : 'text-slate-400'}`}
+                                            >
+                                                {t === 'work' ? 'Worked' : 'Missed Day'}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</label>
+                                        <input type="date" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors" />
+                                    </div>
+
+                                    {formData.type === 'work' && (
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Start</label><input type="time" value={formData.startTime} onChange={(e) => setFormData({...formData, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors" /></div>
+                                            <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">End</label><input type="time" value={formData.endTime} onChange={(e) => setFormData({...formData, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors" /></div>
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Notes</label>
+                                        <textarea 
+                                            value={formData.notes} onChange={(e) => setFormData({...formData, notes: e.target.value})} 
+                                            placeholder="Details..." rows={3} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors resize-none"
+                                        />
+                                    </div>
+
+                                    <div className="flex gap-3 pt-2">
+                                        {editingEntry && (
+                                            <button onClick={() => handleDelete(editingEntry.id)} className="p-4 rounded-xl bg-red-50 text-red-500 font-bold hover:bg-red-100">
+                                                <Icon name="trash-2" size={20} />
+                                            </button>
+                                        )}
+                                        <button onClick={handleSave} className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200 active:scale-[0.98] flex items-center justify-center gap-2">
+                                            <Icon name="save" size={20} /> Save
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
