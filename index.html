@@ -57,18 +57,16 @@
             const [entries, setEntries] = useState([]);
             const [loading, setLoading] = useState(true);
             const [hasLocalData, setHasLocalData] = useState(false);
+            const [isContractorMode, setIsContractorMode] = useState(false);
             
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [editingEntry, setEditingEntry] = useState(null);
             const [formData, setFormData] = useState({
                 date: new Date().toISOString().split('T')[0],
-                startTime: '',
-                endTime: '',
-                notes: '',
-                type: 'work'
+                startTime: '', endTime: '', notes: '', type: 'work'
             });
 
-            // Load Cloud Data
+            // Fetch Data from Cloud
             const fetchEntries = async () => {
                 setLoading(true);
                 const { data, error } = await supabaseClient
@@ -82,26 +80,22 @@
 
             useEffect(() => {
                 fetchEntries();
-                // Check if this specific device has old "trapped" data
                 const local = localStorage.getItem('renovation_entries');
-                if (local && JSON.parse(local).length > 0) {
-                    setHasLocalData(true);
-                }
+                if (local && JSON.parse(local).length > 0) setHasLocalData(true);
             }, []);
 
-            // Migrate LocalStorage -> Cloud
+            // Migrate Phone Data to Cloud
             const handleSyncLocalData = async () => {
                 const localData = JSON.parse(localStorage.getItem('renovation_entries') || '[]');
-                if (confirm(`Move ${localData.length} items from phone to Cloud?`)) {
-                    // Filter out IDs that might conflict or let Supabase handle upsert
+                if (confirm(`Move ${localData.length} items to Cloud?`)) {
                     const { error } = await supabaseClient.from('renovations').upsert(localData);
                     if (!error) {
                         localStorage.removeItem('renovation_entries'); 
                         setHasLocalData(false);
                         fetchEntries();
-                        alert("Migration successful! Everything is now synced.");
+                        alert("Sync successful!");
                     } else {
-                        alert("Sync error: " + error.message);
+                        alert("Sync failed: " + error.message);
                     }
                 }
             };
@@ -124,24 +118,20 @@
 
             const handleSave = async () => {
                 if (formData.type === 'work' && (!formData.startTime || !formData.endTime)) {
-                    alert("Please enter times for work.");
+                    alert("Please enter times.");
                     return;
                 }
 
                 const newEntry = { 
                     ...formData, 
                     id: editingEntry ? editingEntry.id : Date.now().toString(), 
-                    status: formData.type === 'missed' ? 'missed' : 'completed' 
+                    status: formData.type === 'missed' ? 'missed' : 'completed',
+                    is_confirmed: editingEntry ? editingEntry.is_confirmed : false 
                 };
 
                 const { error } = await supabaseClient.from('renovations').upsert([newEntry]);
-                
-                if (!error) {
-                    fetchEntries();
-                    closeModal();
-                } else {
-                    alert("Save failed: " + error.message);
-                }
+                if (!error) { fetchEntries(); closeModal(); }
+                else { alert("Error: " + error.message); }
             };
 
             const handleDelete = async (id) => {
@@ -151,7 +141,16 @@
                 }
             };
 
+            const handleToggleConfirm = async (id, currentStatus) => {
+                const { error } = await supabaseClient
+                    .from('renovations')
+                    .update({ is_confirmed: !currentStatus })
+                    .eq('id', id);
+                if (!error) fetchEntries();
+            };
+
             const openModal = (entry = null) => {
+                if (isContractorMode) return;
                 setEditingEntry(entry);
                 setFormData(entry ? { ...entry } : { 
                     date: new Date().toISOString().split('T')[0], 
@@ -164,28 +163,36 @@
 
             return (
                 <div className="pb-24">
-                    {/* Sticky Header */}
-                    <div className="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-10 pt-4 pb-4 px-4">
+                    {/* Header */}
+                    <div className="bg-white shadow-sm border-b sticky top-0 z-10 p-4">
                         <div className="max-w-md mx-auto">
                             {hasLocalData && (
-                                <button onClick={handleSyncLocalData} className="w-full mb-4 bg-orange-500 text-white p-3 rounded-xl text-sm font-bold flex items-center justify-between shadow-lg animate-pulse">
+                                <button onClick={handleSyncLocalData} className="w-full mb-4 bg-orange-500 text-white p-3 rounded-xl text-sm font-bold flex justify-between items-center shadow-lg">
                                     <span>Sync Phone Data to Cloud</span>
                                     <Icon name="upload-cloud" size={18} />
                                 </button>
                             )}
 
                             <div className="flex justify-between items-center mb-4">
-                                <h1 className="text-lg font-bold text-slate-900">Renovation Tracker</h1>
+                                <div>
+                                    <h1 className="text-lg font-bold text-slate-900">Renovations</h1>
+                                    <button 
+                                        onClick={() => setIsContractorMode(!isContractorMode)}
+                                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${isContractorMode ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}
+                                    >
+                                        {isContractorMode ? 'Contractor Mode' : 'Owner Mode'}
+                                    </button>
+                                </div>
                                 <div className="text-right">
                                     <div className="text-xl font-bold text-blue-600">{formatCurrency(stats.remainingBalance)}</div>
-                                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Debt Left</p>
+                                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Remaining</p>
                                 </div>
                             </div>
 
-                            <div className="relative h-3 bg-slate-100 rounded-full overflow-hidden mb-2">
-                                <div className="absolute top-0 left-0 h-full bg-blue-500 transition-all duration-500" style={{ width: `${stats.percentComplete}%` }}></div>
+                            <div className="relative h-2 bg-slate-100 rounded-full overflow-hidden mb-2">
+                                <div className="absolute h-full bg-blue-500 transition-all duration-500" style={{ width: `${stats.percentComplete}%` }}></div>
                             </div>
-                            <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase tracking-wide">
+                            <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase">
                                 <span>{formatHours(stats.hoursWorked)} worked</span>
                                 <span>{formatHours(stats.remainingHours)} left</span>
                             </div>
@@ -194,34 +201,41 @@
 
                     {/* List Area */}
                     <div className="max-w-md mx-auto px-4 py-4 space-y-3">
-                        {loading ? (
-                            <div className="text-center py-20">
-                                <div className="animate-spin inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mb-4"></div>
-                                <p className="text-slate-400 font-medium">Fetching Cloud Data...</p>
-                            </div>
-                        ) : entries.length === 0 ? (
-                            <p className="text-center py-20 text-slate-400">No entries found. Tap + to start.</p>
-                        ) : 
+                        {loading ? <div className="text-center py-20 text-slate-400 font-bold">Syncing...</div> : 
                         entries.map(entry => {
                             const duration = calculateDuration(entry.startTime, entry.endTime);
                             const value = duration * stats.hourlyRate;
                             const isMissed = entry.type === 'missed';
 
                             return (
-                                <div key={entry.id} onClick={() => openModal(entry)} className={`bg-white rounded-xl p-4 shadow-sm border-l-4 flex justify-between items-start active:scale-[0.98] transition-all cursor-pointer ${isMissed ? 'border-red-400 opacity-80' : 'border-blue-500'}`}>
-                                    <div className="flex-1">
+                                <div key={entry.id} className={`bg-white rounded-xl p-4 shadow-sm border-l-4 flex justify-between items-center transition-all ${isMissed ? 'border-red-400 opacity-80' : 'border-blue-500'}`}>
+                                    <div onClick={() => openModal(entry)} className="flex-1 cursor-pointer">
                                         <div className="flex items-center gap-2 mb-1">
                                             <span className="font-bold text-slate-700">{formatDate(entry.date)}</span>
                                             {isMissed ? <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold uppercase">Missed</span> : <span className="text-xs text-slate-400 font-medium">{entry.startTime} - {entry.endTime}</span>}
                                         </div>
-                                        <p className="text-sm text-slate-600 leading-snug line-clamp-1 italic">{entry.notes || "No notes logged"}</p>
-                                    </div>
-                                    <div className="text-right">
-                                        {!isMissed && (
-                                            <div className="flex flex-col items-end">
-                                                <span className="font-bold text-slate-800">{formatCurrency(value)}</span>
-                                                <span className="text-[10px] text-slate-400 font-bold">{formatHours(duration)}</span>
+                                        <p className="text-sm text-slate-600 italic line-clamp-1">{entry.notes || "No notes"}</p>
+                                        {entry.is_confirmed && (
+                                            <div className="flex items-center gap-1 text-[10px] text-green-600 font-bold mt-1 uppercase">
+                                                <Icon name="check-circle" size={12} /> Confirmed
                                             </div>
+                                        )}
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-3">
+                                        {!isMissed && !isContractorMode && (
+                                            <div className="text-right">
+                                                <div className="font-bold text-slate-800 text-sm">{formatCurrency(value)}</div>
+                                                <div className="text-[10px] text-slate-400 font-bold">{formatHours(duration)}</div>
+                                            </div>
+                                        )}
+                                        {isContractorMode && (
+                                            <button 
+                                                onClick={() => handleToggleConfirm(entry.id, entry.is_confirmed)}
+                                                className={`p-2 rounded-lg border-2 transition-all ${entry.is_confirmed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-200 text-slate-300'}`}
+                                            >
+                                                <Icon name="check" size={20} />
+                                            </button>
                                         )}
                                     </div>
                                 </div>
@@ -229,15 +243,15 @@
                         })}
                     </div>
 
-                    {/* Add Button */}
-                    <button onClick={() => openModal()} className="fixed bottom-6 right-6 bg-blue-600 text-white w-16 h-16 rounded-full shadow-2xl flex items-center justify-center active:scale-90 z-20 hover:bg-blue-700 transition-colors">
-                        <Icon name="plus" size={32} />
-                    </button>
+                    {/* FAB */}
+                    {!isContractorMode && (
+                        <button onClick={() => openModal()} className="fixed bottom-6 right-6 bg-blue-600 text-white w-16 h-16 rounded-full shadow-2xl flex items-center justify-center active:scale-90 z-20"><Icon name="plus" size={32} /></button>
+                    )}
 
-                    {/* Entry Modal */}
+                    {/* Modal */}
                     {isModalOpen && (
                         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                            <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-5">
+                            <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl animate-in slide-in-from-bottom-5">
                                 <div className="flex justify-between items-center mb-6">
                                     <h3 className="text-lg font-bold text-slate-800">{editingEntry ? 'Update Entry' : 'Log Work'}</h3>
                                     <button onClick={closeModal} className="p-2 bg-slate-100 rounded-full text-slate-500"><Icon name="x" size={20} /></button>
@@ -250,29 +264,17 @@
                                             </button>
                                         ))}
                                     </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Date</label>
-                                        <input type="date" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
-                                    </div>
+                                    <input type="date" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl" />
                                     {formData.type === 'work' && (
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Start</label>
-                                                <input type="time" value={formData.startTime} onChange={(e) => setFormData({...formData, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">End</label>
-                                                <input type="time" value={formData.endTime} onChange={(e) => setFormData({...formData, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" />
-                                            </div>
+                                            <input type="time" value={formData.startTime} onChange={(e) => setFormData({...formData, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl" />
+                                            <input type="time" value={formData.endTime} onChange={(e) => setFormData({...formData, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl" />
                                         </div>
                                     )}
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Notes</label>
-                                        <textarea value={formData.notes} onChange={(e) => setFormData({...formData, notes: e.target.value})} placeholder="What did you work on?" rows={3} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl resize-none outline-none focus:border-blue-500" />
-                                    </div>
+                                    <textarea value={formData.notes} onChange={(e) => setFormData({...formData, notes: e.target.value})} placeholder="Notes..." rows={3} className="w-full p-3 bg-slate-50 border rounded-xl resize-none" />
                                     <div className="flex gap-3 pt-2">
-                                        {editingEntry && <button onClick={() => handleDelete(editingEntry.id)} className="p-4 rounded-xl bg-red-50 text-red-500 font-bold transition-colors"><Icon name="trash-2" size={20} /></button>}
-                                        <button onClick={handleSave} className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 active:scale-95 transition-all">Save Changes</button>
+                                        {editingEntry && <button onClick={() => handleDelete(editingEntry.id)} className="p-4 rounded-xl bg-red-50 text-red-500 font-bold"><Icon name="trash-2" size={20} /></button>}
+                                        <button onClick={handleSave} className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg">Save</button>
                                     </div>
                                 </div>
                             </div>
