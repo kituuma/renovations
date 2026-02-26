@@ -20,7 +20,8 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- SUPABASE CONFIG ---
+        // --- CONFIGURATION ---
+        const MASTER_PIN = '0628'; // Change your PIN here!
         const SUPABASE_URL = 'https://cfmpxtsszqvbrgdgdumf.supabase.co'; 
         const SUPABASE_KEY = 'sb_publishable_GiahwsiF8XMQ79X8Y-B0Vw_RDl-ZwD1';
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -33,7 +34,7 @@
             return <i data-lucide={name} width={size} height={size} className={className}></i>;
         };
 
-        // --- HELPER FUNCTIONS ---
+        // --- HELPERS ---
         const calculateDuration = (start, end) => {
             if (!start || !end) return 0;
             const [startH, startM] = start.split(':').map(Number);
@@ -57,7 +58,10 @@
             const [entries, setEntries] = useState([]);
             const [loading, setLoading] = useState(true);
             const [hasLocalData, setHasLocalData] = useState(false);
-            const [isContractorMode, setIsContractorMode] = useState(false);
+            
+            // SECURITY STATE
+            const [isContractorMode, setIsContractorMode] = useState(true); // Starts in Contractor View
+            const [isUnlocked, setIsUnlocked] = useState(false); 
             
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [editingEntry, setEditingEntry] = useState(null);
@@ -72,20 +76,44 @@
                     .from('renovations')
                     .select('*')
                     .order('date', { ascending: false });
-                
                 if (!error && data) setEntries(data);
                 setLoading(false);
             };
 
             useEffect(() => {
                 fetchEntries();
+                // Persistence: Check if we unlocked it earlier in this browser session
+                if (sessionStorage.getItem('owner_unlocked') === 'true') {
+                    setIsUnlocked(true);
+                    setIsContractorMode(false);
+                }
                 const local = localStorage.getItem('renovation_entries');
                 if (local && JSON.parse(local).length > 0) setHasLocalData(true);
             }, []);
 
+            // MODE SWITCHER WITH PIN
+            const handleToggleMode = () => {
+                if (isContractorMode) {
+                    if (isUnlocked) {
+                        setIsContractorMode(false);
+                    } else {
+                        const pin = prompt("Enter Master PIN to access Owner Mode:");
+                        if (pin === MASTER_PIN) {
+                            setIsUnlocked(true);
+                            setIsContractorMode(false);
+                            sessionStorage.setItem('owner_unlocked', 'true');
+                        } else if (pin !== null) {
+                            alert("Incorrect PIN");
+                        }
+                    }
+                } else {
+                    setIsContractorMode(true);
+                }
+            };
+
             const handleSyncLocalData = async () => {
                 const localData = JSON.parse(localStorage.getItem('renovation_entries') || '[]');
-                if (confirm(`Move ${localData.length} items to Cloud?`)) {
+                if (confirm(`Sync ${localData.length} items to Cloud?`)) {
                     const { error } = await supabaseClient.from('renovations').upsert(localData);
                     if (!error) {
                         localStorage.removeItem('renovation_entries'); 
@@ -101,7 +129,6 @@
                 const hourlyRate = totalDebt / totalHoursTarget;
                 let hoursWorked = entries.reduce((acc, e) => 
                     (e.type === 'work' && e.startTime && e.endTime) ? acc + calculateDuration(e.startTime, e.endTime) : acc, 0);
-
                 const valueEarned = hoursWorked * hourlyRate;
                 return { 
                     hourlyRate, hoursWorked, valueEarned, 
@@ -112,18 +139,12 @@
             }, [entries]);
 
             const handleSave = async () => {
-                if (formData.type === 'work' && (!formData.startTime || !formData.endTime)) {
-                    alert("Please enter times.");
-                    return;
-                }
-
                 const newEntry = { 
                     ...formData, 
                     id: editingEntry ? editingEntry.id : Date.now().toString(), 
                     status: formData.type === 'missed' ? 'missed' : 'completed',
                     is_confirmed: editingEntry ? editingEntry.is_confirmed : false 
                 };
-
                 const { error } = await supabaseClient.from('renovations').upsert([newEntry]);
                 if (!error) { fetchEntries(); closeModal(); }
             };
@@ -156,10 +177,10 @@
 
             return (
                 <div className="pb-24">
-                    {/* Header */}
+                    {/* Sticky Header */}
                     <div className="bg-white shadow-sm border-b sticky top-0 z-10 p-4">
                         <div className="max-w-md mx-auto">
-                            {hasLocalData && (
+                            {hasLocalData && !isContractorMode && (
                                 <button onClick={handleSyncLocalData} className="w-full mb-4 bg-orange-500 text-white p-3 rounded-xl text-sm font-bold flex justify-between items-center shadow-lg">
                                     <span>Sync Phone Data</span>
                                     <Icon name="upload-cloud" size={18} />
@@ -170,9 +191,10 @@
                                 <div>
                                     <h1 className="text-lg font-bold text-slate-900 leading-none mb-1">Renovations</h1>
                                     <button 
-                                        onClick={() => setIsContractorMode(!isContractorMode)}
-                                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${isContractorMode ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}
+                                        onClick={handleToggleMode}
+                                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1 ${isContractorMode ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}
                                     >
+                                        <Icon name={isContractorMode ? "lock" : "unlock"} size={10} />
                                         {isContractorMode ? 'Contractor Mode' : 'Owner Mode'}
                                     </button>
                                 </div>
@@ -192,9 +214,9 @@
                         </div>
                     </div>
 
-                    {/* List Area */}
+                    {/* Entry List */}
                     <div className="max-w-md mx-auto px-4 py-4 space-y-3">
-                        {loading ? <div className="text-center py-20 text-slate-400 font-bold">Loading Cloud Data...</div> : 
+                        {loading ? <div className="text-center py-20 text-slate-400 font-bold">Syncing...</div> : 
                         entries.map(entry => {
                             const duration = calculateDuration(entry.startTime, entry.endTime);
                             const value = duration * stats.hourlyRate;
@@ -207,17 +229,16 @@
                                             <span className="font-bold text-slate-700">{formatDate(entry.date)}</span>
                                             {isMissed ? <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold uppercase">Missed</span> : <span className="text-xs text-slate-400 font-medium">{entry.startTime} - {entry.endTime}</span>}
                                         </div>
-                                        {/* Updated notes: whitespace support and no clipping */}
                                         <p className="text-sm text-slate-600 italic whitespace-pre-wrap">{entry.notes || "No notes logged"}</p>
                                         {entry.is_confirmed && (
                                             <div className="flex items-center gap-1 text-[10px] text-green-600 font-bold mt-2 uppercase">
-                                                <Icon name="check-circle" size={12} /> Confirmed by Contractor
+                                                <Icon name="check-circle" size={12} /> Confirmed
                                             </div>
                                         )}
                                     </div>
                                     
                                     <div className="flex items-center gap-3">
-                                        {!isMissed && !isContractorMode && (
+                                        {!isMissed && isContractorMode === false && (
                                             <div className="text-right">
                                                 <div className="font-bold text-slate-800 text-sm">{formatCurrency(value)}</div>
                                                 <div className="text-[10px] text-slate-400 font-bold">{formatHours(duration)}</div>
@@ -237,7 +258,7 @@
                         })}
                     </div>
 
-                    {/* FAB (Hidden for Contractor) */}
+                    {/* Floating Add Button (Owner Only) */}
                     {!isContractorMode && (
                         <button onClick={() => openModal()} className="fixed bottom-6 right-6 bg-blue-600 text-white w-16 h-16 rounded-full shadow-2xl flex items-center justify-center active:scale-90 z-20"><Icon name="plus" size={32} /></button>
                     )}
@@ -251,7 +272,6 @@
                                     <button onClick={closeModal} className="p-2 bg-slate-100 rounded-full text-slate-500"><Icon name="x" size={20} /></button>
                                 </div>
                                 <div className="space-y-4">
-                                    {/* Inputs are disabled for Contractor Mode */}
                                     <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
                                         {['work', 'missed'].map(t => (
                                             <button key={t} disabled={isContractorMode} onClick={() => setFormData({...formData, type: t})} className={`py-3 text-sm font-bold rounded-lg transition-all ${formData.type === t ? 'bg-white shadow text-blue-600' : 'text-slate-400'}`}>
@@ -280,11 +300,10 @@
                                         <textarea readOnly={isContractorMode} value={formData.notes} onChange={(e) => setFormData({...formData, notes: e.target.value})} placeholder="Notes..." rows={5} className="w-full p-3 bg-slate-50 border rounded-xl resize-none outline-none focus:border-blue-500" />
                                     </div>
                                     
-                                    {/* Action Buttons toggle based on Mode */}
                                     {!isContractorMode ? (
                                         <div className="flex gap-3 pt-2">
                                             {editingEntry && <button onClick={() => handleDelete(editingEntry.id)} className="p-4 rounded-xl bg-red-50 text-red-500 font-bold"><Icon name="trash-2" size={20} /></button>}
-                                            <button onClick={handleSave} className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg">Save</button>
+                                            <button onClick={handleSave} className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg">Save Changes</button>
                                         </div>
                                     ) : (
                                         <button onClick={closeModal} className="w-full py-4 bg-slate-800 text-white font-bold rounded-xl">Close View</button>
