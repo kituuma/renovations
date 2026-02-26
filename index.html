@@ -332,3 +332,14 @@
 </body>
 
 </html>
+// ONE-TIME MIGRATION SCRIPT
+async function migrateToCloud() {
+  const localData = JSON.parse(localStorage.getItem('renovations_data') || '[]'); // Use your actual localStorage key name
+  if (localData.length > 0) {
+    const { error } = await supabase.from('renovations').insert(localData);
+    if (!error) {
+      alert("Success! Your phone data is now in the cloud.");
+      // Optional: localStorage.clear(); // Only clear after you're 100% sure it's synced
+    }
+  }
+}
