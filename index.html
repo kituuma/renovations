@@ -60,7 +60,7 @@
             const [hasLocalData, setHasLocalData] = useState(false);
             
             // SECURITY STATE
-            const [isContractorMode, setIsContractorMode] = useState(true); // Starts in Contractor View
+            const [isContractorMode, setIsContractorMode] = useState(true); 
             const [isUnlocked, setIsUnlocked] = useState(false); 
             
             const [isModalOpen, setIsModalOpen] = useState(false);
@@ -82,7 +82,6 @@
 
             useEffect(() => {
                 fetchEntries();
-                // Persistence: Check if we unlocked it earlier in this browser session
                 if (sessionStorage.getItem('owner_unlocked') === 'true') {
                     setIsUnlocked(true);
                     setIsContractorMode(false);
@@ -91,7 +90,6 @@
                 if (local && JSON.parse(local).length > 0) setHasLocalData(true);
             }, []);
 
-            // MODE SWITCHER WITH PIN
             const handleToggleMode = () => {
                 if (isContractorMode) {
                     if (isUnlocked) {
@@ -177,7 +175,7 @@
 
             return (
                 <div className="pb-24">
-                    {/* Sticky Header */}
+                    {/* Header */}
                     <div className="bg-white shadow-sm border-b sticky top-0 z-10 p-4">
                         <div className="max-w-md mx-auto">
                             {hasLocalData && !isContractorMode && (
@@ -198,10 +196,18 @@
                                         {isContractorMode ? 'Contractor Mode' : 'Owner Mode'}
                                     </button>
                                 </div>
-                                <div className="text-right">
-                                    <div className="text-xl font-bold text-blue-600">{formatCurrency(stats.remainingBalance)}</div>
-                                    <p className="text-[10px] text-slate-400 uppercase font-bold">Remaining</p>
-                                </div>
+                                {/* Financial Stats: Hidden in Contractor Mode */}
+                                {!isContractorMode ? (
+                                    <div className="text-right">
+                                        <div className="text-xl font-bold text-blue-600">{formatCurrency(stats.remainingBalance)}</div>
+                                        <p className="text-[10px] text-slate-400 uppercase font-bold">Remaining</p>
+                                    </div>
+                                ) : (
+                                    <div className="text-right">
+                                        <div className="text-sm font-bold text-slate-400">Restricted</div>
+                                        <p className="text-[10px] text-slate-300 uppercase font-bold italic">Owner Access Only</p>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="relative h-2 bg-slate-100 rounded-full overflow-hidden mb-2">
@@ -214,7 +220,7 @@
                         </div>
                     </div>
 
-                    {/* Entry List */}
+                    {/* List */}
                     <div className="max-w-md mx-auto px-4 py-4 space-y-3">
                         {loading ? <div className="text-center py-20 text-slate-400 font-bold">Syncing...</div> : 
                         entries.map(entry => {
@@ -238,7 +244,8 @@
                                     </div>
                                     
                                     <div className="flex items-center gap-3">
-                                        {!isMissed && isContractorMode === false && (
+                                        {/* Individual Item Value: Hidden in Contractor Mode */}
+                                        {!isMissed && !isContractorMode && (
                                             <div className="text-right">
                                                 <div className="font-bold text-slate-800 text-sm">{formatCurrency(value)}</div>
                                                 <div className="text-[10px] text-slate-400 font-bold">{formatHours(duration)}</div>
@@ -247,77 +254,4 @@
                                         {isContractorMode && (
                                             <button 
                                                 onClick={(e) => { e.stopPropagation(); handleToggleConfirm(entry.id, entry.is_confirmed); }}
-                                                className={`p-2 rounded-lg border-2 transition-all ${entry.is_confirmed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-200 text-slate-300'}`}
-                                            >
-                                                <Icon name="check" size={24} />
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    {/* Floating Add Button (Owner Only) */}
-                    {!isContractorMode && (
-                        <button onClick={() => openModal()} className="fixed bottom-6 right-6 bg-blue-600 text-white w-16 h-16 rounded-full shadow-2xl flex items-center justify-center active:scale-90 z-20"><Icon name="plus" size={32} /></button>
-                    )}
-
-                    {/* Entry Modal */}
-                    {isModalOpen && (
-                        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                            <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl animate-in slide-in-from-bottom-5">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h3 className="text-lg font-bold text-slate-800">{isContractorMode ? 'View Details' : (editingEntry ? 'Update Entry' : 'Log Work')}</h3>
-                                    <button onClick={closeModal} className="p-2 bg-slate-100 rounded-full text-slate-500"><Icon name="x" size={20} /></button>
-                                </div>
-                                <div className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
-                                        {['work', 'missed'].map(t => (
-                                            <button key={t} disabled={isContractorMode} onClick={() => setFormData({...formData, type: t})} className={`py-3 text-sm font-bold rounded-lg transition-all ${formData.type === t ? 'bg-white shadow text-blue-600' : 'text-slate-400'}`}>
-                                                {t === 'work' ? 'Worked' : 'Missed'}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Date</label>
-                                        <input type="date" readOnly={isContractorMode} value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none" />
-                                    </div>
-                                    {formData.type === 'work' && (
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Start</label>
-                                                <input type="time" readOnly={isContractorMode} value={formData.startTime} onChange={(e) => setFormData({...formData, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl" />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">End</label>
-                                                <input type="time" readOnly={isContractorMode} value={formData.endTime} onChange={(e) => setFormData({...formData, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl" />
-                                            </div>
-                                        </div>
-                                    )}
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Notes</label>
-                                        <textarea readOnly={isContractorMode} value={formData.notes} onChange={(e) => setFormData({...formData, notes: e.target.value})} placeholder="Notes..." rows={5} className="w-full p-3 bg-slate-50 border rounded-xl resize-none outline-none focus:border-blue-500" />
-                                    </div>
-                                    
-                                    {!isContractorMode ? (
-                                        <div className="flex gap-3 pt-2">
-                                            {editingEntry && <button onClick={() => handleDelete(editingEntry.id)} className="p-4 rounded-xl bg-red-50 text-red-500 font-bold"><Icon name="trash-2" size={20} /></button>}
-                                            <button onClick={handleSave} className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg">Save Changes</button>
-                                        </div>
-                                    ) : (
-                                        <button onClick={closeModal} className="w-full py-4 bg-slate-800 text-white font-bold rounded-xl">Close View</button>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+                                                className={`p-2 rounded-lg border-2 transition-all ${entry.is_confirmed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-200 text-slate-
