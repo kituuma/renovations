@@ -21,9 +21,9 @@
         const { useState, useEffect, useMemo } = React;
 
         // --- SUPABASE CONFIG ---
-        const SUPABASE_URL = 'YOUR_SUPABASE_URL'; 
-        const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const SUPABASE_URL = 'https://cfmpxtsszqvbrgdgdumf.supabase.co'; 
+        const SUPABASE_KEY = 'sb_publishable_GiahwsiF8XMQ79X8Y-B0Vw_RDl-ZwD1';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         // --- ICONS ---
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -40,74 +40,4 @@
             const [endH, endM] = end.split(':').map(Number);
             const startDate = new Date(0, 0, 0, startH, startM);
             const endDate = new Date(0, 0, 0, endH, endM);
-            let diff = (endDate - startDate) / 1000 / 60 / 60; 
-            if (diff < 0) diff += 24; 
-            return diff;
-        };
-
-        const formatCurrency = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
-        const formatHours = (val) => `${val.toFixed(2)} hrs`;
-        const formatDate = (dateStr) => {
-            if (!dateStr) return '';
-            const [y, m, d] = dateStr.split('-');
-            return `${m}/${d}`;
-        };
-
-        function App() {
-            const [entries, setEntries] = useState([]);
-            const [loading, setLoading] = useState(true);
-            const [hasLocalData, setHasLocalData] = useState(false);
-            
-            const [isModalOpen, setIsModalOpen] = useState(false);
-            const [editingEntry, setEditingEntry] = useState(null);
-            const [formData, setFormData] = useState({
-                date: new Date().toISOString().split('T')[0],
-                startTime: '',
-                endTime: '',
-                notes: '',
-                type: 'work'
-            });
-
-            // 1. Fetch Cloud Data
-            const fetchEntries = async () => {
-                setLoading(true);
-                const { data, error } = await supabase
-                    .from('renovations')
-                    .select('*')
-                    .order('date', { ascending: false });
-                
-                if (!error) setEntries(data);
-                setLoading(false);
-            };
-
-            useEffect(() => {
-                fetchEntries();
-                // Check if there is old data trapped on this specific phone
-                const local = localStorage.getItem('renovation_entries');
-                if (local && JSON.parse(local).length > 0) {
-                    setHasLocalData(true);
-                }
-            }, []);
-
-            // 2. Migration Tool (Move Local Storage to Supabase)
-            const handleSyncLocalData = async () => {
-                const localData = JSON.parse(localStorage.getItem('renovation_entries') || '[]');
-                if (confirm(`Move ${localData.length} entries from phone memory to Cloud?`)) {
-                    const { error } = await supabase.from('renovations').upsert(localData);
-                    if (!error) {
-                        localStorage.removeItem('renovation_entries'); // Clean up
-                        setHasLocalData(false);
-                        fetchEntries();
-                        alert("Sync Complete! Your data is now in the cloud.");
-                    } else {
-                        alert("Error syncing: " + error.message);
-                    }
-                }
-            };
-
-            const stats = useMemo(() => {
-                const totalDebt = 2000;
-                const totalHoursTarget = 104;
-                const hourlyRate = totalDebt / totalHoursTarget;
-                let hoursWorked = entries.reduce((acc, e) => 
-                    (e.type ===
+            let diff =
